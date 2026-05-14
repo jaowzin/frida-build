@@ -1,0 +1,13 @@
+{
+  "name": "frida-ts-builder",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "@types/frida-gum": "latest",
+    "frida-compile": "latest",
+    "typescript": "latest"
+  },
+  "scripts": {
+    "build": "frida-compile agent.ts -o agent.js"
+  }
+}
