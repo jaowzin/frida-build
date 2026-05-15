@@ -1,18 +1,16 @@
 import "frida-il2cpp-bridge";
 
-console.log("[+] Script IL2CPP bridge carregado");
+const classes = ["Rocket"];
+const methods = [".cctor"]
 
 Il2Cpp.perform(() => {
-  console.log("[+] Il2Cpp inicializado");
-  console.log("[+] Unity version: " + Il2Cpp.unityVersion);
-
-  const assemblies = Il2Cpp.domain.assemblies;
-  console.log("[+] Assemblies encontradas: " + assemblies.length);
-
-  assemblies.slice(0, 10).forEach((assembly, index) => {
-    const image = assembly.image;
-    console.log(`[${index}] Assembly: ${image.name} | Classes: ${image.classes.length}`);
-  });
-
-  console.log("[+] Teste finalizado sem hookar/modificar nada");
+  console.log(Il2Cpp.unityVersion);
+  setTimeout(() => {
+    Il2Cpp.trace()
+      .assemblies(Il2Cpp.Domain.assembly("Assembly-CSharp"))
+      .filterClasses(cls => classes.includes(cls.name))
+      .filterMethods(mtd => methods.includes(mtd.name))
+      .and()
+      .attach("detailed");
+  }, 30 * 1000); // we sleep 30 seconds so the application doesn't crash on attach
 });
