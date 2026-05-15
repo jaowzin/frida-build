@@ -9,6 +9,7 @@ console.log("[+] Menu lib: " + MENU_LIB_NAME);
 
 let nativeRender = null;
 let nativeSetText = null;
+let nativeHandleInput = null;
 
 function dirname(path) {
   const i = path.lastIndexOf("/");
@@ -45,7 +46,6 @@ function findLibDir() {
       if (m.name === ref) {
         const dir = dirname(m.path);
         console.log("[+] Referencia: " + ref);
-        console.log("[+] Path: " + m.path);
         console.log("[+] Dir: " + dir);
         return dir;
       }
@@ -93,11 +93,8 @@ function findExport(libName, exportName) {
   const mod = findModule(libName);
 
   if (!mod) {
-    console.log("[-] Modulo nao encontrado: " + libName);
     return null;
   }
-
-  console.log("[+] Modulo: " + mod.name + " -> " + mod.path);
 
   const list = mod.enumerateExports();
 
@@ -108,7 +105,6 @@ function findExport(libName, exportName) {
     }
   }
 
-  console.log("[-] Export nao encontrado: " + exportName);
   return null;
 }
 
@@ -116,15 +112,22 @@ function resolveExports() {
   const initPtr = findExport(MENU_LIB_NAME, "native_init");
   const renderPtr = findExport(MENU_LIB_NAME, "native_render");
   const setTextPtr = findExport(MENU_LIB_NAME, "native_set_text");
+  const inputPtr = findExport(MENU_LIB_NAME, "native_handle_input");
 
-  if (!initPtr || !renderPtr || !setTextPtr) {
+  if (!initPtr || !renderPtr || !setTextPtr || !inputPtr) {
     console.log("[-] Exports faltando na libmenu.so");
+    console.log("[-] Precisa ter:");
+    console.log("    native_init");
+    console.log("    native_render");
+    console.log("    native_set_text");
+    console.log("    native_handle_input");
     return false;
   }
 
   const nativeInit = new NativeFunction(initPtr, "void", []);
   nativeRender = new NativeFunction(renderPtr, "void", []);
   nativeSetText = new NativeFunction(setTextPtr, "void", ["pointer"]);
+  nativeHandleInput = new NativeFunction(inputPtr, "void", ["pointer"]);
 
   try {
     nativeInit();
@@ -139,7 +142,7 @@ function resolveExports() {
 }
 
 function hookEglSwapBuffers() {
-  let eglSwap = findExport("libEGL.so", "eglSwapBuffers");
+  const eglSwap = findExport("libEGL.so", "eglSwapBuffers");
 
   if (!eglSwap) {
     console.log("[-] eglSwapBuffers nao encontrado");
@@ -152,13 +155,58 @@ function hookEglSwapBuffers() {
         if (nativeRender) {
           nativeRender();
         }
-      } catch (e) {
-      }
+      } catch (e) {}
     }
   });
 
   console.log("[+] Hook eglSwapBuffers instalado");
   return true;
+}
+
+function hookInputQueue() {
+  try {
+    if (!findModule("libandroid.so")) {
+      tryLoad("libandroid.so");
+    }
+
+    const getEvent = findExport("libandroid.so", "AInputQueue_getEvent");
+
+    if (!getEvent) {
+      console.log("[-] AInputQueue_getEvent nao encontrado");
+      console.log("[-] Menu vai aparecer, mas sem toque");
+      return false;
+    }
+
+    Interceptor.attach(getEvent, {
+      onEnter(args) {
+        this.outEvent = args[1];
+      },
+      onLeave(retval) {
+        try {
+          if (!nativeHandleInput) return;
+
+          const r = retval.toInt32();
+
+          if (r >= 0 && this.outEvent) {
+            const eventPtr = this.outEvent.readPointer();
+
+            if (!eventPtr.isNull()) {
+              nativeHandleInput(eventPtr);
+            }
+          }
+        } catch (e) {}
+      }
+    });
+
+    console.log("[+] Hook input instalado");
+    console.log("[+] Agora o ImGui deve aceitar toque");
+    return true;
+
+  } catch (e) {
+    console.log("[-] Erro hook input:");
+    console.log(String(e));
+    return false;
+  }
 }
 
 function setMenuText(text) {
@@ -185,13 +233,7 @@ function getIl2CppInfo() {
     const asm = Il2Cpp.domain.assembly(TARGET_ASSEMBLY);
 
     if (!asm) {
-      out += "Assembly-CSharp nao encontrada\n\n";
-      out += "Assemblies:\n";
-
-      for (const a of Il2Cpp.domain.assemblies) {
-        out += "- " + a.image.name + "\n";
-      }
-
+      out += "Assembly-CSharp nao encontrada\n";
       return;
     }
 
@@ -199,14 +241,9 @@ function getIl2CppInfo() {
 
     out += "Assembly: " + asm.image.name + "\n";
     out += "Total classes: " + classes.length + "\n\n";
-    out += "Primeiras classes:\n";
 
-    for (let i = 0; i < classes.length && i < 80; i++) {
+    for (let i = 0; i < classes.length && i < 60; i++) {
       out += i + ". " + classes[i].name + "\n";
-    }
-
-    if (classes.length > 80) {
-      out += "\n... mais " + (classes.length - 80) + " classes\n";
     }
   });
 
@@ -216,28 +253,24 @@ function getIl2CppInfo() {
 function main() {
   console.log("[+] Iniciando script...");
 
-  const loaded = loadMenuLib();
-
-  if (!loaded) {
+  if (!loadMenuLib()) {
     console.log("[-] Falhou ao carregar libmenu.so");
     console.log("[-] Coloque no APK:");
     console.log("    lib/arm64-v8a/libmenu.so");
     return;
   }
 
-  const exportsOk = resolveExports();
-
-  if (!exportsOk) {
-    console.log("[-] Falhou ao resolver exports");
+  if (!resolveExports()) {
+    console.log("[-] Falhou exports");
     return;
   }
 
-  const hooked = hookEglSwapBuffers();
-
-  if (!hooked) {
-    console.log("[-] Falhou hook eglSwapBuffers");
+  if (!hookEglSwapBuffers()) {
+    console.log("[-] Falhou render hook");
     return;
   }
+
+  hookInputQueue();
 
   setTimeout(function () {
     try {
@@ -250,7 +283,7 @@ function main() {
     }
   }, 3000);
 
-  console.log("[+] Script pronto. O menu deve aparecer nos frames.");
+  console.log("[+] Script pronto");
 }
 
 setTimeout(main, 5000);
