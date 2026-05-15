@@ -6,7 +6,6 @@ const TARGET_ASSEMBLY = "Assembly-CSharp";
 
 console.log("[+] Loader Frida para menu nativo iniciado");
 console.log("[+] Menu lib: " + MENU_LIB_NAME);
-console.log("[+] Suporte para gadget: libgadget.so / gadget.so / libfrida-gadget.so");
 
 let nativeRender = null;
 let nativeSetText = null;
@@ -15,6 +14,22 @@ function dirname(path: string): string {
   const i = path.lastIndexOf("/");
   if (i <= 0) return "";
   return path.substring(0, i);
+}
+
+function findModuleByNameSafe(name: string) {
+  try {
+    const mods = Process.enumerateModules();
+
+    for (const m of mods) {
+      if (m.name === name) {
+        return m;
+      }
+    }
+
+    return null;
+  } catch (e) {
+    return null;
+  }
 }
 
 function listarModsImportantes() {
@@ -86,20 +101,19 @@ function tryLoad(pathOrName: string): boolean {
 }
 
 function loadMenuLib(): boolean {
-  let base = Module.findBaseAddress(MENU_LIB_NAME);
+  const already = findModuleByNameSafe(MENU_LIB_NAME);
 
-  if (base != null) {
+  if (already != null) {
     console.log("[+] Lib do menu ja estava carregada");
-    console.log("[+] Base: " + base);
+    console.log("[+] Base: " + already.base);
+    console.log("[+] Path: " + already.path);
     return true;
   }
 
-  // tenta carregar pelo nome direto
   if (tryLoad(MENU_LIB_NAME)) {
     return true;
   }
 
-  // tenta carregar pela mesma pasta onde esta libgadget/libil2cpp/libunity
   const dir = findLibDir();
 
   if (dir != null) {
@@ -114,10 +128,19 @@ function loadMenuLib(): boolean {
   return false;
 }
 
+function findExport(lib: string, name: string) {
+  try {
+    return Module.findExportByName(lib, name);
+  } catch (e) {
+    console.log("[-] Erro procurando export " + name + ": " + e);
+    return null;
+  }
+}
+
 function resolveExports(): boolean {
-  const initPtr = Module.findExportByName(MENU_LIB_NAME, "native_init");
-  const renderPtr = Module.findExportByName(MENU_LIB_NAME, "native_render");
-  const setTextPtr = Module.findExportByName(MENU_LIB_NAME, "native_set_text");
+  const initPtr = findExport(MENU_LIB_NAME, "native_init");
+  const renderPtr = findExport(MENU_LIB_NAME, "native_render");
+  const setTextPtr = findExport(MENU_LIB_NAME, "native_set_text");
 
   if (initPtr == null) {
     console.log("[-] Export native_init nao encontrado");
@@ -147,24 +170,19 @@ function resolveExports(): boolean {
     return false;
   }
 
-  console.log("[+] Exports carregados:");
-  console.log("    native_init");
-  console.log("    native_render");
-  console.log("    native_set_text");
-
+  console.log("[+] Exports carregados");
   return true;
 }
 
 function hookEglSwapBuffers(): boolean {
-  let eglSwap = Module.findExportByName("libEGL.so", "eglSwapBuffers");
+  let eglSwap = findExport("libEGL.so", "eglSwapBuffers");
 
   if (eglSwap == null) {
-    console.log("[*] eglSwapBuffers nao encontrado direto, procurando em todos os modulos...");
+    console.log("[*] Procurando eglSwapBuffers em modulos EGL...");
 
     for (const m of Process.enumerateModules()) {
       if (m.name.toLowerCase().includes("egl")) {
-        console.log("[*] Testando EGL module: " + m.name);
-        eglSwap = Module.findExportByName(m.name, "eglSwapBuffers");
+        eglSwap = findExport(m.name, "eglSwapBuffers");
 
         if (eglSwap != null) {
           console.log("[+] eglSwapBuffers encontrado em: " + m.name);
@@ -185,9 +203,7 @@ function hookEglSwapBuffers(): boolean {
         if (nativeRender != null) {
           nativeRender();
         }
-      } catch (e) {
-        // evita flood
-      }
+      } catch (e) {}
     }
   });
 
@@ -211,13 +227,9 @@ function getIl2CppInfo(): string {
   Il2Cpp.perform(() => {
     out += "Frida Native Menu\n";
     out += "====================\n\n";
-
     out += "Menu carregado via Frida script\n";
-    out += "Gadget detectado: libgadget.so/gadget.so/libfrida-gadget.so\n";
     out += "Menu lib: libmenu.so\n";
-    out += "Sem Java.perform()\n";
-    out += "Sem Activity\n";
-    out += "Sem classe DEX\n\n";
+    out += "Sem Java.perform()\n\n";
 
     out += "Unity: " + Il2Cpp.unityVersion + "\n";
     out += "Assemblies: " + Il2Cpp.domain.assemblies.length + "\n\n";
@@ -235,10 +247,9 @@ function getIl2CppInfo(): string {
       return;
     }
 
-    const image = asm.image;
-    const classes = image.classes;
+    const classes = asm.image.classes;
 
-    out += "Assembly: " + image.name + "\n";
+    out += "Assembly: " + asm.image.name + "\n";
     out += "Total classes: " + classes.length + "\n\n";
     out += "Primeiras classes:\n";
 
@@ -258,39 +269,26 @@ setTimeout(() => {
   console.log("[+] Iniciando script...");
   listarModsImportantes();
 
-  console.log("[+] Tentando carregar lib do menu...");
-
   const loaded = loadMenuLib();
 
   if (!loaded) {
     console.log("[-] Falhou ao carregar libmenu.so");
-    console.log("[-] Confira se esta dentro do APK:");
+    console.log("[-] Pelo seu log, a pasta correta parece ser:");
+    console.log("    /data/app/.../com.yuriychechulin.throwio.../lib/arm64/");
+    console.log("[-] Coloque a lib aqui no APK:");
     console.log("    lib/arm64-v8a/libmenu.so");
-    console.log("");
-    console.log("[-] E se o gadget esta junto:");
-    console.log("    lib/arm64-v8a/libgadget.so");
-    console.log("");
-    console.log("[-] Se o app for 32 bits:");
-    console.log("    lib/armeabi-v7a/libmenu.so");
-    console.log("    lib/armeabi-v7a/libgadget.so");
     return;
   }
 
-  const exportsOk = resolveExports();
-
-  if (!exportsOk) {
-    console.log("[-] A lib carregou, mas nao tem os exports esperados:");
+  if (!resolveExports()) {
+    console.log("[-] A lib carregou, mas nao tem os exports:");
     console.log("    native_init");
     console.log("    native_render");
     console.log("    native_set_text");
-    console.log("");
-    console.log("[-] Sua libmenu.so precisa exportar essas funcoes.");
     return;
   }
 
-  const hooked = hookEglSwapBuffers();
-
-  if (!hooked) {
+  if (!hookEglSwapBuffers()) {
     console.log("[-] Falhou hook eglSwapBuffers");
     return;
   }
