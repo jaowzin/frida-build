@@ -1,3 +1,4 @@
+// @ts-nocheck
 import "frida-il2cpp-bridge";
 
 const TARGET_ASSEMBLY = "Assembly-CSharp";
@@ -6,172 +7,171 @@ console.log("[+] Script menu IL2CPP carregado");
 
 Il2Cpp.perform(() => {
   Java.perform(() => {
-    createFloatingMenu();
+    Java.scheduleOnMainThread(() => {
+      criarMenu();
+    });
   });
 });
 
-function createFloatingMenu() {
-  Java.scheduleOnMainThread(() => {
-    try {
-      const UnityPlayer = Java.use("com.unity3d.player.UnityPlayer");
-      const activity = UnityPlayer.currentActivity.value;
+function criarMenu() {
+  try {
+    const UnityPlayer = Java.use("com.unity3d.player.UnityPlayer");
+    const activity = UnityPlayer.currentActivity.value;
 
-      if (activity == null) {
-        console.log("[-] Activity nao encontrada");
-        return;
-      }
+    if (activity == null) {
+      console.log("[-] Activity nao encontrada");
+      return;
+    }
 
-      const LinearLayout = Java.use("android.widget.LinearLayout");
-      const TextView = Java.use("android.widget.TextView");
-      const Button = Java.use("android.widget.Button");
-      const ScrollView = Java.use("android.widget.ScrollView");
-      const FrameLayout = Java.use("android.widget.FrameLayout");
-      const GradientDrawable = Java.use("android.graphics.drawable.GradientDrawable");
-      const Color = Java.use("android.graphics.Color");
-      const Gravity = Java.use("android.view.Gravity");
-      const View = Java.use("android.view.View");
+    const LinearLayout = Java.use("android.widget.LinearLayout");
+    const TextView = Java.use("android.widget.TextView");
+    const Button = Java.use("android.widget.Button");
+    const ScrollView = Java.use("android.widget.ScrollView");
+    const FrameLayout = Java.use("android.widget.FrameLayout");
+    const GradientDrawable = Java.use("android.graphics.drawable.GradientDrawable");
+    const Color = Java.use("android.graphics.Color");
+    const Gravity = Java.use("android.view.Gravity");
 
-      const decorView = activity.getWindow().getDecorView();
-      const root = Java.cast(decorView, FrameLayout);
+    const decorView = activity.getWindow().getDecorView();
+    const root = Java.cast(decorView, FrameLayout);
 
-      const old = root.findViewWithTag("FRIDA_IL2CPP_MENU");
-      if (old != null) {
-        root.removeView(old);
-      }
+    const oldMenu = root.findViewWithTag("FRIDA_IL2CPP_MENU");
 
-      const menu = LinearLayout.$new(activity);
-      menu.setTag("FRIDA_IL2CPP_MENU");
-      menu.setOrientation(LinearLayout.VERTICAL.value);
-      menu.setPadding(dp(activity, 10), dp(activity, 10), dp(activity, 10), dp(activity, 10));
+    if (oldMenu != null) {
+      root.removeView(oldMenu);
+    }
 
-      const bg = GradientDrawable.$new();
-      bg.setColor(Color.argb(220, 20, 20, 20));
-      bg.setCornerRadius(dp(activity, 12));
-      bg.setStroke(dp(activity, 2), Color.rgb(0, 200, 255));
-      menu.setBackground(bg);
+    const menu = LinearLayout.$new(activity);
+    menu.setTag("FRIDA_IL2CPP_MENU");
+    menu.setOrientation(LinearLayout.VERTICAL.value);
+    menu.setPadding(dp(activity, 10), dp(activity, 10), dp(activity, 10), dp(activity, 10));
 
-      const title = TextView.$new(activity);
-      title.setText("⚙️ Frida IL2CPP Menu");
-      title.setTextColor(Color.rgb(0, 220, 255));
-      title.setTextSize(16);
-      title.setGravity(Gravity.CENTER.value);
-      menu.addView(title);
+    const bg = GradientDrawable.$new();
+    bg.setColor(Color.argb(230, 20, 20, 20));
+    bg.setCornerRadius(dp(activity, 12));
+    bg.setStroke(dp(activity, 2), Color.rgb(0, 200, 255));
+    menu.setBackground(bg);
 
-      const info = TextView.$new(activity);
-      info.setText("Clique no botão para listar infos.");
-      info.setTextColor(Color.WHITE.value);
-      info.setTextSize(12);
-      info.setPadding(0, dp(activity, 8), 0, dp(activity, 8));
+    const title = TextView.$new(activity);
+    title.setText("⚙️ IL2CPP MENU");
+    title.setTextColor(Color.rgb(0, 220, 255));
+    title.setTextSize(16);
+    title.setGravity(Gravity.CENTER.value);
 
-      const scroll = ScrollView.$new(activity);
-      scroll.addView(info);
+    const info = TextView.$new(activity);
+    info.setText("Clique em LISTAR CLASSES");
+    info.setTextColor(Color.WHITE.value);
+    info.setTextSize(12);
+    info.setPadding(0, dp(activity, 8), 0, dp(activity, 8));
 
-      const btnInfo = Button.$new(activity);
-      btnInfo.setText("Listar classes");
+    const scroll = ScrollView.$new(activity);
+    scroll.addView(info);
 
-      const btnClose = Button.$new(activity);
-      btnClose.setText("Fechar menu");
+    const btnListar = Button.$new(activity);
+    btnListar.setText("LISTAR CLASSES");
 
-      menu.addView(btnInfo);
-      menu.addView(scroll);
-      menu.addView(btnClose);
+    const btnFechar = Button.$new(activity);
+    btnFechar.setText("FECHAR");
 
-      const params = FrameLayout.LayoutParams.$new(
-        dp(activity, 300),
-        dp(activity, 350)
-      );
+    menu.addView(title);
+    menu.addView(btnListar);
+    menu.addView(scroll);
+    menu.addView(btnFechar);
 
-      params.leftMargin = dp(activity, 20);
-      params.topMargin = dp(activity, 120);
+    const params = FrameLayout.LayoutParams.$new(
+      dp(activity, 300),
+      dp(activity, 360)
+    );
 
-      root.addView(menu, params);
+    params.leftMargin = dp(activity, 20);
+    params.topMargin = dp(activity, 120);
 
-      let lastX = 0;
-      let lastY = 0;
-      let startLeft = 0;
-      let startTop = 0;
+    root.addView(menu, params);
 
-      const TouchListener = Java.registerClass({
-        name: "com.frida.il2cpp.MenuTouchListener" + Date.now(),
-        implements: [Java.use("android.view.View$OnTouchListener")],
-        methods: {
-          onTouch(v: any, event: any) {
-            const action = event.getAction();
+    let startX = 0;
+    let startY = 0;
+    let startLeft = 0;
+    let startTop = 0;
 
-            if (action === 0) {
-              lastX = event.getRawX();
-              lastY = event.getRawY();
-              startLeft = params.leftMargin;
-              startTop = params.topMargin;
-              return true;
-            }
+    const TouchListener = Java.registerClass({
+      name: "com.frida.menu.TouchListener" + Date.now(),
+      implements: [Java.use("android.view.View$OnTouchListener")],
+      methods: {
+        onTouch(v, event) {
+          const action = event.getAction();
 
-            if (action === 2) {
-              const dx = event.getRawX() - lastX;
-              const dy = event.getRawY() - lastY;
-
-              params.leftMargin = startLeft + dx;
-              params.topMargin = startTop + dy;
-
-              menu.setLayoutParams(params);
-              return true;
-            }
-
+          if (action === 0) {
+            startX = event.getRawX();
+            startY = event.getRawY();
+            startLeft = params.leftMargin;
+            startTop = params.topMargin;
             return true;
           }
+
+          if (action === 2) {
+            const dx = event.getRawX() - startX;
+            const dy = event.getRawY() - startY;
+
+            params.leftMargin = startLeft + dx;
+            params.topMargin = startTop + dy;
+
+            menu.setLayoutParams(params);
+            return true;
+          }
+
+          return true;
         }
-      });
+      }
+    });
 
-      title.setOnTouchListener(TouchListener.$new());
+    title.setOnTouchListener(TouchListener.$new());
 
-      const InfoClick = Java.registerClass({
-        name: "com.frida.il2cpp.InfoClickListener" + Date.now(),
-        implements: [Java.use("android.view.View$OnClickListener")],
-        methods: {
-          onClick(v: any) {
-            try {
-              const result = getIl2CppInfo();
-              info.setText(result);
-              console.log(result);
-            } catch (e) {
-              const err = "Erro ao listar IL2CPP: " + e;
-              info.setText(err);
-              console.log(err);
-            }
+    const ListarClick = Java.registerClass({
+      name: "com.frida.menu.ListarClick" + Date.now(),
+      implements: [Java.use("android.view.View$OnClickListener")],
+      methods: {
+        onClick(v) {
+          try {
+            const texto = pegarInfoIl2Cpp();
+            info.setText(texto);
+            console.log(texto);
+          } catch (e) {
+            const erro = "Erro: " + e;
+            info.setText(erro);
+            console.log(erro);
           }
         }
-      });
+      }
+    });
 
-      const CloseClick = Java.registerClass({
-        name: "com.frida.il2cpp.CloseClickListener" + Date.now(),
-        implements: [Java.use("android.view.View$OnClickListener")],
-        methods: {
-          onClick(v: any) {
-            try {
-              root.removeView(menu);
-            } catch (e) {
-              console.log("Erro fechando menu: " + e);
-            }
+    const FecharClick = Java.registerClass({
+      name: "com.frida.menu.FecharClick" + Date.now(),
+      implements: [Java.use("android.view.View$OnClickListener")],
+      methods: {
+        onClick(v) {
+          try {
+            root.removeView(menu);
+          } catch (e) {
+            console.log("Erro fechando menu: " + e);
           }
         }
-      });
+      }
+    });
 
-      btnInfo.setOnClickListener(InfoClick.$new());
-      btnClose.setOnClickListener(CloseClick.$new());
+    btnListar.setOnClickListener(ListarClick.$new());
+    btnFechar.setOnClickListener(FecharClick.$new());
 
-      console.log("[+] Menu flutuante criado");
+    console.log("[+] Menu flutuante criado");
 
-    } catch (e) {
-      console.log("[-] Erro criando menu: " + e);
-    }
-  });
+  } catch (e) {
+    console.log("[-] Erro criando menu: " + e);
+  }
 }
 
-function getIl2CppInfo(): string {
+function pegarInfoIl2Cpp() {
   let out = "";
 
   out += "Unity: " + Il2Cpp.unityVersion + "\n\n";
-
   out += "Assemblies: " + Il2Cpp.domain.assemblies.length + "\n";
 
   const assembly = Il2Cpp.domain.assembly(TARGET_ASSEMBLY);
@@ -191,23 +191,22 @@ function getIl2CppInfo(): string {
   const classes = image.classes;
 
   out += "Assembly: " + image.name + "\n";
-  out += "Classes: " + classes.length + "\n\n";
-
+  out += "Total classes: " + classes.length + "\n\n";
   out += "Primeiras classes:\n";
 
-  for (let i = 0; i < classes.length && i < 80; i++) {
+  for (let i = 0; i < classes.length && i < 100; i++) {
     const klass = classes[i];
     out += i + ". " + klass.name + "\n";
   }
 
-  if (classes.length > 80) {
-    out += "\n... mais " + (classes.length - 80) + " classes";
+  if (classes.length > 100) {
+    out += "\n... mais " + (classes.length - 100) + " classes";
   }
 
   return out;
 }
 
-function dp(activity: any, value: number): number {
+function dp(activity, value) {
   const density = activity.getResources().getDisplayMetrics().density.value;
   return Math.floor(value * density);
 }
