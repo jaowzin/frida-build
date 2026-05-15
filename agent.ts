@@ -128,11 +128,34 @@ function loadMenuLib(): boolean {
   return false;
 }
 
-function findExport(lib: string, name: string) {
+function findExport(libName: string, exportName: string) {
   try {
-    return Module.findExportByName(lib, name);
+    const mods = Process.enumerateModules();
+
+    for (const m of mods) {
+      if (m.name === libName) {
+        console.log("[+] Modulo encontrado:");
+        console.log("    " + m.name + " -> " + m.path);
+
+        const exportsList = m.enumerateExports();
+
+        for (const ex of exportsList) {
+          if (ex.name === exportName) {
+            console.log("[+] Export encontrado: " + exportName + " -> " + ex.address);
+            return ex.address;
+          }
+        }
+
+        console.log("[-] Export nao encontrado em " + libName + ": " + exportName);
+        return null;
+      }
+    }
+
+    console.log("[-] Modulo nao encontrado: " + libName);
+    return null;
   } catch (e) {
-    console.log("[-] Erro procurando export " + name + ": " + e);
+    console.log("[-] Erro procurando export " + exportName + ":");
+    console.log(String(e));
     return null;
   }
 }
@@ -170,7 +193,7 @@ function resolveExports(): boolean {
     return false;
   }
 
-  console.log("[+] Exports carregados");
+  console.log("[+] Exports carregados com sucesso");
   return true;
 }
 
@@ -178,10 +201,12 @@ function hookEglSwapBuffers(): boolean {
   let eglSwap = findExport("libEGL.so", "eglSwapBuffers");
 
   if (eglSwap == null) {
-    console.log("[*] Procurando eglSwapBuffers em modulos EGL...");
+    console.log("[*] Procurando eglSwapBuffers em outros modulos EGL...");
 
     for (const m of Process.enumerateModules()) {
       if (m.name.toLowerCase().includes("egl")) {
+        console.log("[*] Testando modulo: " + m.name);
+
         eglSwap = findExport(m.name, "eglSwapBuffers");
 
         if (eglSwap != null) {
@@ -203,7 +228,9 @@ function hookEglSwapBuffers(): boolean {
         if (nativeRender != null) {
           nativeRender();
         }
-      } catch (e) {}
+      } catch (e) {
+        // evita flood
+      }
     }
   });
 
@@ -229,7 +256,9 @@ function getIl2CppInfo(): string {
     out += "====================\n\n";
     out += "Menu carregado via Frida script\n";
     out += "Menu lib: libmenu.so\n";
-    out += "Sem Java.perform()\n\n";
+    out += "Sem Java.perform()\n";
+    out += "Sem Activity\n";
+    out += "Sem DEX\n\n";
 
     out += "Unity: " + Il2Cpp.unityVersion + "\n";
     out += "Assemblies: " + Il2Cpp.domain.assemblies.length + "\n\n";
@@ -273,14 +302,17 @@ setTimeout(() => {
 
   if (!loaded) {
     console.log("[-] Falhou ao carregar libmenu.so");
-    console.log("[-] Pelo seu log, a pasta correta parece ser:");
-    console.log("    /data/app/.../com.yuriychechulin.throwio.../lib/arm64/");
-    console.log("[-] Coloque a lib aqui no APK:");
+    console.log("[-] Confira se esta dentro do APK:");
     console.log("    lib/arm64-v8a/libmenu.so");
+    console.log("");
+    console.log("[-] No Android instalado deve aparecer como:");
+    console.log("    /data/app/.../lib/arm64/libmenu.so");
     return;
   }
 
-  if (!resolveExports()) {
+  const exportsOk = resolveExports();
+
+  if (!exportsOk) {
     console.log("[-] A lib carregou, mas nao tem os exports:");
     console.log("    native_init");
     console.log("    native_render");
@@ -288,7 +320,9 @@ setTimeout(() => {
     return;
   }
 
-  if (!hookEglSwapBuffers()) {
+  const hooked = hookEglSwapBuffers();
+
+  if (!hooked) {
     console.log("[-] Falhou hook eglSwapBuffers");
     return;
   }
