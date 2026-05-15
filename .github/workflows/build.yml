@@ -12,7 +12,9 @@ permissions:
   contents: write
 
 env:
+  REQUEST_ID: ${{ github.event.inputs.request_id }}
   OUTPUT_FILE: builds/${{ github.event.inputs.request_id }}.js
+  ERROR_FILE: builds/${{ github.event.inputs.request_id }}.error.txt
 
 jobs:
   build:
@@ -37,15 +39,40 @@ jobs:
           npm list frida-compile frida-il2cpp-bridge typescript --depth=0 || true
 
       - name: Criar pasta builds
-        run: mkdir -p builds
+        run: |
+          mkdir -p builds
+          rm -f "$OUTPUT_FILE" "$ERROR_FILE" build.log
 
       - name: Compilar agent.ts para JS
-        run: npx frida-compile agent.ts -o "$OUTPUT_FILE"
+        id: compile
+        shell: bash
+        run: |
+          set +e
+          npx frida-compile agent.ts -o "$OUTPUT_FILE" > build.log 2>&1
+          CODE=$?
+          cat build.log
 
-      - name: Salvar JS compilado no repositorio
+          if [ $CODE -ne 0 ]; then
+            {
+              echo "Compilation failed."
+              echo "Exit code: $CODE"
+              echo ""
+              echo "===== LOG ====="
+              cat build.log
+            } > "$ERROR_FILE"
+
+            rm -f "$OUTPUT_FILE"
+          else
+            rm -f "$ERROR_FILE"
+          fi
+
+          exit 0
+
+      - name: Salvar resultado no repositorio
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$OUTPUT_FILE"
-          git commit -m "build: il2cpp output ${{ github.event.inputs.request_id }}" || echo "Nada para commitar"
+          git add "$OUTPUT_FILE" "$ERROR_FILE" 2>/dev/null || true
+          git add builds 2>/dev/null || true
+          git commit -m "build: result $REQUEST_ID" || echo "Nada para commitar"
           git push
