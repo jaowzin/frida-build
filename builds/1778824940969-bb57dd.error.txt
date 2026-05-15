@@ -1,0 +1,13 @@
+Compilation failed.
+Exit code: 1
+
+===== LOG =====
+agent.ts:2:19 - error TS2304: Cannot find name 'findExport'.
+agent.ts:2:30 - error TS2304: Cannot find name 'MENU_LIB_NAME'.
+agent.ts:3:21 - error TS2304: Cannot find name 'findExport'.
+agent.ts:3:32 - error TS2304: Cannot find name 'MENU_LIB_NAME'.
+agent.ts:4:22 - error TS2304: Cannot find name 'findExport'.
+agent.ts:4:33 - error TS2304: Cannot find name 'MENU_LIB_NAME'.
+agent.ts:22:3 - error TS2304: Cannot find name 'nativeRender'.
+agent.ts:23:3 - error TS2304: Cannot find name 'nativeSetText'.
+Compilation failed
