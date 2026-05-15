@@ -1,24 +1,24 @@
 // @ts-nocheck
 import "frida-il2cpp-bridge";
 
-const MENU_LIB = "/storage/emulated/0/Download/libfrida_menu.so";
+const MENU_LIB_NAME = "libfrida_menu.so";
 const TARGET_ASSEMBLY = "Assembly-CSharp";
 
 console.log("[+] Loader menu nativo iniciado");
-console.log("[+] Caminho da lib: " + MENU_LIB);
+console.log("[+] Tentando carregar lib interna: " + MENU_LIB_NAME);
 
 let nativeRender = null;
 let nativeSetText = null;
 
 function loadNativeMenu() {
   try {
-    console.log("[+] Carregando lib: " + MENU_LIB);
+    Module.load(MENU_LIB_NAME);
 
-    Module.load(MENU_LIB);
+    console.log("[+] Lib carregada: " + MENU_LIB_NAME);
 
-    const initPtr = Module.findExportByName("libfrida_menu.so", "native_init");
-    const renderPtr = Module.findExportByName("libfrida_menu.so", "native_render");
-    const setTextPtr = Module.findExportByName("libfrida_menu.so", "native_set_text");
+    const initPtr = Module.findExportByName(MENU_LIB_NAME, "native_init");
+    const renderPtr = Module.findExportByName(MENU_LIB_NAME, "native_render");
+    const setTextPtr = Module.findExportByName(MENU_LIB_NAME, "native_set_text");
 
     if (initPtr == null) {
       console.log("[-] Export native_init nao encontrado");
@@ -41,10 +41,12 @@ function loadNativeMenu() {
 
     nativeInit();
 
-    console.log("[+] Lib nativa inicializada");
+    console.log("[+] Menu nativo inicializado");
     return true;
+
   } catch (e) {
-    console.log("[-] Erro carregando menu nativo: " + e);
+    console.log("[-] Erro carregando lib interna:");
+    console.log(String(e));
     return false;
   }
 }
@@ -64,7 +66,7 @@ function hookEglSwapBuffers() {
           nativeRender();
         }
       } catch (e) {
-        // evita flood de log
+        // evita flood no console
       }
     }
   });
@@ -73,14 +75,17 @@ function hookEglSwapBuffers() {
   return true;
 }
 
-function setMenuText(text: string) {
-  if (nativeSetText == null) return;
+function setMenuText(text) {
+  if (nativeSetText == null) {
+    console.log("[-] nativeSetText ainda nao inicializado");
+    return;
+  }
 
   const ptr = Memory.allocUtf8String(text);
   nativeSetText(ptr);
 }
 
-function getIl2CppInfo(): string {
+function getIl2CppInfo() {
   let out = "";
 
   Il2Cpp.perform(() => {
@@ -103,10 +108,12 @@ function getIl2CppInfo(): string {
       return out;
     }
 
-    const classes = asm.image.classes;
+    const image = asm.image;
+    const classes = image.classes;
 
-    out += "Assembly: " + asm.image.name + "\n";
+    out += "Assembly: " + image.name + "\n";
     out += "Total classes: " + classes.length + "\n\n";
+
     out += "Primeiras classes:\n";
 
     for (let i = 0; i < classes.length && i < 120; i++) {
@@ -125,9 +132,9 @@ setTimeout(() => {
   const loaded = loadNativeMenu();
 
   if (!loaded) {
-    console.log("[-] Falhou ao carregar menu");
-    console.log("[-] Verifique se a lib esta aqui:");
-    console.log(MENU_LIB);
+    console.log("[-] Falhou ao carregar libfrida_menu.so");
+    console.log("[-] Confira se ela esta dentro do APK em:");
+    console.log("    lib/arm64-v8a/libfrida_menu.so");
     return;
   }
 
@@ -142,9 +149,10 @@ setTimeout(() => {
     try {
       const info = getIl2CppInfo();
       setMenuText(info);
-      console.log("[+] Info IL2CPP enviada para menu");
+      console.log("[+] Info IL2CPP enviada para o menu");
     } catch (e) {
-      console.log("[-] Erro pegando info IL2CPP: " + e);
+      console.log("[-] Erro pegando info IL2CPP:");
+      console.log(String(e));
     }
   }, 3000);
 
