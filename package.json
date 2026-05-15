@@ -1,10 +1,11 @@
 {
-  "name": "frida-ts-builder",
+  "name": "frida-il2cpp-telegram-builder",
   "version": "1.0.0",
   "private": true,
   "devDependencies": {
     "@types/frida-gum": "latest",
     "frida-compile": "latest",
+    "frida-il2cpp-bridge": "latest",
     "typescript": "latest"
   },
   "scripts": {
