@@ -4,50 +4,31 @@ import "frida-il2cpp-bridge";
 const MENU_LIB_NAME = "libmenu.so";
 const TARGET_ASSEMBLY = "Assembly-CSharp";
 
-console.log("[+] Loader Frida para menu nativo iniciado");
+console.log("[+] Loader Frida menu iniciado");
 console.log("[+] Menu lib: " + MENU_LIB_NAME);
 
-let nativeRender: any = null;
-let nativeSetText: any = null;
+let nativeRender = null;
+let nativeSetText = null;
 
-function dirname(path: string): string {
+function dirname(path) {
   const i = path.lastIndexOf("/");
   if (i <= 0) return "";
   return path.substring(0, i);
 }
 
-function listarModsImportantes() {
-  console.log("[+] Listando libs importantes carregadas:");
+function findModule(name) {
+  const mods = Process.enumerateModules();
 
-  for (const m of Process.enumerateModules()) {
-    const name = m.name.toLowerCase();
-
-    if (
-      name.includes("gadget") ||
-      name.includes("il2cpp") ||
-      name.includes("unity") ||
-      name.includes("main") ||
-      name.includes("menu") ||
-      name.includes("egl")
-    ) {
-      console.log("[MOD] " + m.name + " -> " + m.path);
+  for (const m of mods) {
+    if (m.name === name) {
+      return m;
     }
   }
-}
-
-function findModuleByNameSafe(name: string) {
-  try {
-    for (const m of Process.enumerateModules()) {
-      if (m.name === name) {
-        return m;
-      }
-    }
-  } catch (e) {}
 
   return null;
 }
 
-function findLibDir(): string | null {
+function findLibDir() {
   const refs = [
     "libil2cpp.so",
     "libunity.so",
@@ -63,46 +44,35 @@ function findLibDir(): string | null {
     for (const m of mods) {
       if (m.name === ref) {
         const dir = dirname(m.path);
-
-        console.log("[+] Referencia encontrada: " + ref);
-        console.log("[+] Caminho: " + m.path);
-        console.log("[+] Pasta nativa: " + dir);
-
+        console.log("[+] Referencia: " + ref);
+        console.log("[+] Path: " + m.path);
+        console.log("[+] Dir: " + dir);
         return dir;
       }
     }
   }
 
-  console.log("[-] Nenhuma lib de referencia encontrada");
   return null;
 }
 
-function tryLoad(pathOrName: string): boolean {
+function tryLoad(path) {
   try {
-    console.log("[*] Tentando carregar:");
-    console.log("    " + pathOrName);
-
-    Module.load(pathOrName);
-
-    console.log("[+] Carregou:");
-    console.log("    " + pathOrName);
-
+    console.log("[*] Tentando carregar: " + path);
+    Module.load(path);
+    console.log("[+] Carregou: " + path);
     return true;
   } catch (e) {
-    console.log("[-] Falhou ao carregar:");
-    console.log("    " + pathOrName);
+    console.log("[-] Falhou: " + path);
     console.log(String(e));
     return false;
   }
 }
 
-function loadMenuLib(): boolean {
-  const already = findModuleByNameSafe(MENU_LIB_NAME);
+function loadMenuLib() {
+  const already = findModule(MENU_LIB_NAME);
 
-  if (already != null) {
-    console.log("[+] Lib do menu ja estava carregada");
-    console.log("[+] Base: " + already.base);
-    console.log("[+] Path: " + already.path);
+  if (already) {
+    console.log("[+] Lib ja carregada: " + already.path);
     return true;
   }
 
@@ -112,51 +82,175 @@ function loadMenuLib(): boolean {
 
   const dir = findLibDir();
 
-  if (dir != null) {
-    const fullPath = dir + "/" + MENU_LIB_NAME;
-
-    if (tryLoad(fullPath)) {
-      return true;
-    }
+  if (dir) {
+    return tryLoad(dir + "/" + MENU_LIB_NAME);
   }
 
-  console.log("[-] Nao consegui carregar " + MENU_LIB_NAME);
   return false;
 }
 
-function findExport(libName: string, exportName: string) {
-  try {
-    const mods = Process.enumerateModules();
+function findExport(libName, exportName) {
+  const mod = findModule(libName);
 
-    for (const m of mods) {
-      if (m.name === libName) {
-        console.log("[+] Modulo encontrado:");
-        console.log("    " + m.name + " -> " + m.path);
-
-        const exportsList = m.enumerateExports();
-
-        for (const ex of exportsList) {
-          if (ex.name === exportName) {
-            console.log("[+] Export encontrado: " + exportName + " -> " + ex.address);
-            return ex.address;
-          }
-        }
-
-        console.log("[-] Export nao encontrado em " + libName + ": " + exportName);
-        return null;
-      }
-    }
-
+  if (!mod) {
     console.log("[-] Modulo nao encontrado: " + libName);
     return null;
-  } catch (e) {
-    console.log("[-] Erro procurando export " + exportName + ":");
-    console.log(String(e));
-    return null;
   }
+
+  console.log("[+] Modulo: " + mod.name + " -> " + mod.path);
+
+  const list = mod.enumerateExports();
+
+  for (const ex of list) {
+    if (ex.name === exportName) {
+      console.log("[+] Export: " + exportName + " -> " + ex.address);
+      return ex.address;
+    }
+  }
+
+  console.log("[-] Export nao encontrado: " + exportName);
+  return null;
 }
 
-function resolveExports(): boolean {
+function resolveExports() {
   const initPtr = findExport(MENU_LIB_NAME, "native_init");
   const renderPtr = findExport(MENU_LIB_NAME, "native_render");
-  const setTextPtr = find
+  const setTextPtr = findExport(MENU_LIB_NAME, "native_set_text");
+
+  if (!initPtr || !renderPtr || !setTextPtr) {
+    console.log("[-] Exports faltando na libmenu.so");
+    return false;
+  }
+
+  const nativeInit = new NativeFunction(initPtr, "void", []);
+  nativeRender = new NativeFunction(renderPtr, "void", []);
+  nativeSetText = new NativeFunction(setTextPtr, "void", ["pointer"]);
+
+  try {
+    nativeInit();
+    console.log("[+] native_init OK");
+  } catch (e) {
+    console.log("[-] native_init falhou:");
+    console.log(String(e));
+    return false;
+  }
+
+  return true;
+}
+
+function hookEglSwapBuffers() {
+  let eglSwap = findExport("libEGL.so", "eglSwapBuffers");
+
+  if (!eglSwap) {
+    console.log("[-] eglSwapBuffers nao encontrado");
+    return false;
+  }
+
+  Interceptor.attach(eglSwap, {
+    onEnter(args) {
+      try {
+        if (nativeRender) {
+          nativeRender();
+        }
+      } catch (e) {
+      }
+    }
+  });
+
+  console.log("[+] Hook eglSwapBuffers instalado");
+  return true;
+}
+
+function setMenuText(text) {
+  if (!nativeSetText) return;
+
+  const p = Memory.allocUtf8String(text);
+  nativeSetText(p);
+}
+
+function getIl2CppInfo() {
+  let out = "";
+
+  Il2Cpp.perform(function () {
+    out += "Frida Native Menu\n";
+    out += "====================\n\n";
+    out += "Menu lib: libmenu.so\n";
+    out += "Sem Java.perform()\n";
+    out += "Sem Activity\n";
+    out += "Sem DEX\n\n";
+
+    out += "Unity: " + Il2Cpp.unityVersion + "\n";
+    out += "Assemblies: " + Il2Cpp.domain.assemblies.length + "\n\n";
+
+    const asm = Il2Cpp.domain.assembly(TARGET_ASSEMBLY);
+
+    if (!asm) {
+      out += "Assembly-CSharp nao encontrada\n\n";
+      out += "Assemblies:\n";
+
+      for (const a of Il2Cpp.domain.assemblies) {
+        out += "- " + a.image.name + "\n";
+      }
+
+      return;
+    }
+
+    const classes = asm.image.classes;
+
+    out += "Assembly: " + asm.image.name + "\n";
+    out += "Total classes: " + classes.length + "\n\n";
+    out += "Primeiras classes:\n";
+
+    for (let i = 0; i < classes.length && i < 80; i++) {
+      out += i + ". " + classes[i].name + "\n";
+    }
+
+    if (classes.length > 80) {
+      out += "\n... mais " + (classes.length - 80) + " classes\n";
+    }
+  });
+
+  return out;
+}
+
+function main() {
+  console.log("[+] Iniciando script...");
+
+  const loaded = loadMenuLib();
+
+  if (!loaded) {
+    console.log("[-] Falhou ao carregar libmenu.so");
+    console.log("[-] Coloque no APK:");
+    console.log("    lib/arm64-v8a/libmenu.so");
+    return;
+  }
+
+  const exportsOk = resolveExports();
+
+  if (!exportsOk) {
+    console.log("[-] Falhou ao resolver exports");
+    return;
+  }
+
+  const hooked = hookEglSwapBuffers();
+
+  if (!hooked) {
+    console.log("[-] Falhou hook eglSwapBuffers");
+    return;
+  }
+
+  setTimeout(function () {
+    try {
+      const info = getIl2CppInfo();
+      setMenuText(info);
+      console.log("[+] Texto enviado para menu");
+    } catch (e) {
+      console.log("[-] Erro IL2CPP:");
+      console.log(String(e));
+    }
+  }, 3000);
+
+  console.log("[+] Script pronto. O menu deve aparecer nos frames.");
+}
+
+setTimeout(main, 5000);
