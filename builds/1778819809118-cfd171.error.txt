@@ -1,0 +1,24 @@
+Compilation failed.
+Exit code: 1
+
+===== LOG =====
+agent.ts:8:3 - error TS2304: Cannot find name 'Java'.
+agent.ts:14:3 - error TS2304: Cannot find name 'Java'.
+agent.ts:16:27 - error TS2304: Cannot find name 'Java'.
+agent.ts:24:28 - error TS2304: Cannot find name 'Java'.
+agent.ts:25:24 - error TS2304: Cannot find name 'Java'.
+agent.ts:26:22 - error TS2304: Cannot find name 'Java'.
+agent.ts:27:26 - error TS2304: Cannot find name 'Java'.
+agent.ts:28:27 - error TS2304: Cannot find name 'Java'.
+agent.ts:29:32 - error TS2304: Cannot find name 'Java'.
+agent.ts:30:21 - error TS2304: Cannot find name 'Java'.
+agent.ts:31:23 - error TS2304: Cannot find name 'Java'.
+agent.ts:32:20 - error TS2304: Cannot find name 'Java'.
+agent.ts:35:20 - error TS2304: Cannot find name 'Java'.
+agent.ts:94:29 - error TS2304: Cannot find name 'Java'.
+agent.ts:96:22 - error TS2304: Cannot find name 'Java'.
+agent.ts:127:25 - error TS2304: Cannot find name 'Java'.
+agent.ts:129:22 - error TS2304: Cannot find name 'Java'.
+agent.ts:145:26 - error TS2304: Cannot find name 'Java'.
+agent.ts:147:22 - error TS2304: Cannot find name 'Java'.
+Compilation failed
