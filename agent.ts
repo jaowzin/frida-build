@@ -1,9 +1,18 @@
-declare const Java: any;
+import "frida-il2cpp-bridge";
 
-Java.perform(() => {
-  console.log("[+] Script Frida iniciado");
+console.log("[+] Script IL2CPP bridge carregado");
 
-  const StringClass = Java.use("java.lang.String");
+Il2Cpp.perform(() => {
+  console.log("[+] Il2Cpp inicializado");
+  console.log("[+] Unity version: " + Il2Cpp.unityVersion);
 
-  console.log("[+] Classe carregada:", StringClass);
+  const assemblies = Il2Cpp.domain.assemblies;
+  console.log("[+] Assemblies encontradas: " + assemblies.length);
+
+  assemblies.slice(0, 10).forEach((assembly, index) => {
+    const image = assembly.image;
+    console.log(`[${index}] Assembly: ${image.name} | Classes: ${image.classes.length}`);
+  });
+
+  console.log("[+] Teste finalizado sem hookar/modificar nada");
 });
