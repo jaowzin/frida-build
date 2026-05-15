@@ -1,4 +1,4 @@
-name: Build Frida TS to JS
+name: Build Frida IL2CPP TS to JS
 
 on:
   workflow_dispatch:
@@ -10,6 +10,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  OUTPUT_FILE: builds/${{ github.event.inputs.request_id }}.js
 
 jobs:
   build:
@@ -27,16 +30,22 @@ jobs:
       - name: Instalar dependencias
         run: npm install
 
+      - name: Mostrar versoes instaladas
+        run: |
+          node -v
+          npm -v
+          npm list frida-compile frida-il2cpp-bridge typescript --depth=0 || true
+
       - name: Criar pasta builds
         run: mkdir -p builds
 
       - name: Compilar agent.ts para JS
-        run: npx frida-compile agent.ts -o builds/${{ github.event.inputs.request_id }}.js
+        run: npx frida-compile agent.ts -o "$OUTPUT_FILE"
 
       - name: Salvar JS compilado no repositorio
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add builds/${{ github.event.inputs.request_id }}.js
-          git commit -m "build: output ${{ github.event.inputs.request_id }}" || echo "Nada para commitar"
+          git add "$OUTPUT_FILE"
+          git commit -m "build: il2cpp output ${{ github.event.inputs.request_id }}" || echo "Nada para commitar"
           git push
