@@ -1,0 +1,6 @@
+Compilation failed.
+Exit code: 1
+
+===== LOG =====
+agent.ts:162:26 - error TS1005: '}' expected.
+Compilation failed
