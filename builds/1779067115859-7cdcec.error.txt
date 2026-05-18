@@ -1,0 +1,20 @@
+Compilation failed.
+Exit code: 1
+
+===== LOG =====
+agent.ts:202:38 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:211:34 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:215:9 - error TS2322: Type '(this: Class | Object | ValueType, damage: number) => void' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:222:9 - error TS2322: Type '(this: Class | Object | ValueType, damage: number, targetId: number, attacker: Object, isMeleeAttack: boolean, killType: any) => void' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:247:9 - error TS2322: Type '(this: Class | Object | ValueType, dmg: number, targetId: number, killType: any, isHeadShot: boolean) => ReturnType' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:262:34 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:266:9 - error TS2322: Type '(this: Class | Object | ValueType, dmg: number, isFromMine: boolean) => ReturnType' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:276:34 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:303:9 - error TS2322: Type '(this: Class | Object | ValueType, type: number) => ReturnType' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:312:9 - error TS2322: Type '(this: Class | Object | ValueType, type: number, num: number) => ReturnType' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:339:38 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:346:38 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:353:42 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+agent.ts:370:9 - error TS2322: Type '(this: Class | Object | ValueType, item: Object, choiceName: String, equipName: String) => ReturnType' is not assignable to type '(this: Class | Object | ValueType, ...parameters: Type[]) => ReturnType'.
+agent.ts:380:32 - error TS2345: Argument of type 'Class | Object | ValueType' is not assignable to parameter of type 'Type'.
+Compilation failed
