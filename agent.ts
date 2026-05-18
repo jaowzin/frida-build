@@ -1,266 +1,401 @@
-// @ts-nocheck
 import "frida-il2cpp-bridge";
 
-const TARGET_ASSEMBLY = "Assembly-CSharp";
+const INF_MONEY = 999_999_999;
+const INF_HP = 999_999;
 
-// Vazio = todas as classes do Assembly-CSharp
-// Exemplo: "Player", "Game", "Weapon"
-const CLASS_FILTER = "";
-
-// true = mostra argumentos, pode pesar bastante
-const LOG_ARGS = false;
-
-// Limite de logs total por segundo
-const MAX_LOGS_PER_SECOND = 80;
-
-// Limite de logs por método
-// 0 = infinito
-const MAX_LOGS_PER_METHOD = 10;
-
-// Limite de métodos para instalar trace
-// 0 = sem limite
-const MAX_METHODS_TO_TRACE = 0;
-
-// true = inclui get_/set_
-const TRACE_PROPERTIES = true;
-
-// true = inclui construtores .ctor
-const TRACE_CONSTRUCTORS = true;
-
-// true = inclui métodos Update/LateUpdate/FixedUpdate
-// cuidado, esses floodam bastante
-const TRACE_UPDATE_METHODS = true;
-
-let logsThisSecond = 0;
-const methodLogCount = {};
-
-setInterval(function () {
-  logsThisSecond = 0;
-}, 1000);
-
-console.log("[+] Trace TODOS metodos Assembly-CSharp iniciado");
-
-function canLog(): boolean {
-  if (logsThisSecond >= MAX_LOGS_PER_SECOND) {
-    return false;
-  }
-
-  logsThisSecond++;
-  return true;
+function log(msg: string) {
+    console.log(`[CTF] ${msg}`);
 }
 
-function safeStr(v: any): string {
-  try {
-    if (v === null) return "null";
-    if (v === undefined) return "undefined";
-    return String(v);
-  } catch (e) {
-    return "<erro>";
-  }
+function getImage() {
+    return Il2Cpp.domain.assembly("Assembly-CSharp").image;
 }
 
-function classFullName(klass: any): string {
-  try {
-    if (klass.namespace && String(klass.namespace).length > 0) {
-      return klass.namespace + "." + klass.name;
-    }
-
-    return klass.name;
-  } catch (e) {
-    return "<unknown>";
-  }
-}
-
-function matchClass(name: string): boolean {
-  if (!CLASS_FILTER || CLASS_FILTER.length === 0) return true;
-  return name.toLowerCase().includes(CLASS_FILTER.toLowerCase());
-}
-
-function shouldTraceMethod(method: any): boolean {
-  try {
-    const name = String(method.name);
-
-    if (!TRACE_PROPERTIES) {
-      if (name.startsWith("get_")) return false;
-      if (name.startsWith("set_")) return false;
-    }
-
-    if (!TRACE_CONSTRUCTORS) {
-      if (name === ".ctor") return false;
-      if (name === ".cctor") return false;
-    }
-
-    if (!TRACE_UPDATE_METHODS) {
-      if (name === "Update") return false;
-      if (name === "LateUpdate") return false;
-      if (name === "FixedUpdate") return false;
-    }
-
-    try {
-      if (method.isExternal) return false;
-    } catch (e) {}
-
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
-function getMethodSignature(method: any): string {
-  try {
-    let ret = "void";
-
-    try {
-      ret = method.returnType.name;
-    } catch (e) {}
-
-    const params = [];
-
-    try {
-      for (const p of method.parameters) {
-        let pType = "unknown";
-        let pName = "param";
-
+function klass(image: Il2Cpp.Image, ...names: string[]) {
+    for (const name of names) {
         try {
-          pType = p.type.name;
-        } catch (e) {}
-
-        try {
-          pName = p.name || "param";
-        } catch (e) {}
-
-        params.push(pType + " " + pName);
-      }
-    } catch (e) {}
-
-    return ret + " " + method.name + "(" + params.join(", ") + ")";
-  } catch (e) {
-    return String(method.name);
-  }
+            return image.class(name);
+        } catch (_) {}
+    }
+    throw new Error(`Classe não encontrada: ${names.join(" | ")}`);
 }
 
-function installTrace(method: any, klassName: string): boolean {
-  try {
-    const methodName = String(method.name);
-    const signature = getMethodSignature(method);
-    const traceId = klassName + "." + methodName;
+function methodByArgs(c: Il2Cpp.Class, name: string, argc?: number) {
+    const matches = c.methods.filter(m => {
+        if (m.name !== name) return false;
+        if (argc === undefined) return true;
+        return m.parameters.length === argc;
+    });
 
-    methodLogCount[traceId] = 0;
+    if (matches.length === 0) {
+        throw new Error(`Método não encontrado: ${c.name}.${name}/${argc ?? "*"}`);
+    }
 
-    method.implementation = function (...args: any[]) {
-      try {
-        if (MAX_LOGS_PER_METHOD > 0) {
-          if (methodLogCount[traceId] >= MAX_LOGS_PER_METHOD) {
-            return method.invoke(this, ...args);
-          }
+    return matches[0];
+}
 
-          methodLogCount[traceId]++;
-        }
-
-        if (canLog()) {
-          console.log("[TRACE] " + klassName + "." + signature);
-
-          if (LOG_ARGS && args && args.length > 0) {
-            for (let i = 0; i < args.length; i++) {
-              console.log("  arg" + i + ": " + safeStr(args[i]));
-            }
-          }
-        }
-      } catch (e) {}
-
-      return method.invoke(this, ...args);
-    };
-
-    console.log("[+] Trace: " + klassName + "." + signature);
-    return true;
-  } catch (e) {
+function setField(obj: Il2Cpp.Object, fieldName: string, value: any) {
     try {
-      console.log("[-] Falhou: " + klassName + "." + method.name);
-      console.log(String(e));
+        obj.field(fieldName).value = value;
+        return true;
+    } catch (_) {
+        return false;
+    }
+}
+
+function getField<T = any>(obj: Il2Cpp.Object, fieldName: string): T | null {
+    try {
+        return obj.field(fieldName).value as T;
+    } catch (_) {
+        return null;
+    }
+}
+
+function listCount(listObj: Il2Cpp.Object): number {
+    try {
+        return listObj.method("get_Count").invoke() as number;
+    } catch (_) {
+        try {
+            return listObj.field("_size").value as number;
+        } catch (_) {
+            return 0;
+        }
+    }
+}
+
+function listGet(listObj: Il2Cpp.Object, index: number): Il2Cpp.Object | null {
+    try {
+        return listObj.method("get_Item").invoke(index) as Il2Cpp.Object;
+    } catch (_) {
+        try {
+            const items = listObj.field("_items").value as Il2Cpp.Array<Il2Cpp.Object>;
+            return items.get(index);
+        } catch (_) {
+            return null;
+        }
+    }
+}
+
+function patchFPSPlayer(player: Il2Cpp.Object) {
+    setField(player, "isGodMode", true);
+    setField(player, "invulnerable", true);
+    setField(player, "regenerateHealth", true);
+
+    setField(player, "maximumHitPoints", INF_HP);
+    setField(player, "hitPoints", INF_HP);
+
+    setField(player, "MaxshieldsPoints", INF_HP);
+    setField(player, "ShieldsPoints", INF_HP);
+
+    setField(player, "usePlayerHunger", false);
+    setField(player, "usePlayerThirst", false);
+    setField(player, "hungerPoints", 0);
+    setField(player, "thirstPoints", 0);
+}
+
+function patchTacticalHealthIfPlayer(h: Il2Cpp.Object) {
+    /*
+      TacticalAI.HealthScript também existe no dump.
+      Para não deixar inimigos imortais, só aplico quando não parece ser AI.
+    */
+    const aiBase = getField<Il2Cpp.Object>(h, "myAIBaseScript");
+
+    if (aiBase && !aiBase.isNull()) {
+        return;
+    }
+
+    setField(h, "isGodMode", true);
+    setField(h, "health", INF_HP);
+    setField(h, "maxHealth", INF_HP);
+    setField(h, "shields", INF_HP);
+    setField(h, "maxShields", INF_HP);
+}
+
+function patchAllLivePlayers(image: Il2Cpp.Image) {
+    try {
+        const FPSPlayer = klass(image, "FPSPlayer");
+        for (const obj of Il2Cpp.gc.choose(FPSPlayer)) {
+            patchFPSPlayer(obj);
+        }
     } catch (_) {}
 
-    return false;
-  }
-}
-
-function main() {
-  Il2Cpp.perform(function () {
-    console.log("[+] Unity: " + Il2Cpp.unityVersion);
-
-    const asm = Il2Cpp.domain.assembly(TARGET_ASSEMBLY);
-
-    if (!asm) {
-      console.log("[-] Assembly nao encontrada: " + TARGET_ASSEMBLY);
-      console.log("[*] Assemblies disponiveis:");
-
-      for (const a of Il2Cpp.domain.assemblies) {
-        try {
-          console.log(" - " + a.image.name);
-        } catch (e) {}
-      }
-
-      return;
-    }
-
-    console.log("[+] Assembly: " + asm.image.name);
-    console.log("[+] Classes: " + asm.image.classes.length);
-
-    let classCount = 0;
-    let methodCount = 0;
-    let traceCount = 0;
-    let failCount = 0;
-
-    for (const klass of asm.image.classes) {
-      let klassName = "";
-
-      try {
-        klassName = classFullName(klass);
-      } catch (e) {
-        continue;
-      }
-
-      if (!matchClass(klassName)) {
-        continue;
-      }
-
-      classCount++;
-
-      try {
-        for (const method of klass.methods) {
-          methodCount++;
-
-          if (!shouldTraceMethod(method)) {
-            continue;
-          }
-
-          if (MAX_METHODS_TO_TRACE > 0 && traceCount >= MAX_METHODS_TO_TRACE) {
-            console.log("[!] Limite de métodos atingido: " + MAX_METHODS_TO_TRACE);
-            console.log("[+] Classes analisadas: " + classCount);
-            console.log("[+] Métodos encontrados: " + methodCount);
-            console.log("[+] Traces instalados: " + traceCount);
-            console.log("[+] Falhas: " + failCount);
-            return;
-          }
-
-          const ok = installTrace(method, klassName);
-
-          if (ok) {
-            traceCount++;
-          } else {
-            failCount++;
-          }
+    try {
+        const HealthScript = klass(image, "TacticalAI.HealthScript", "HealthScript");
+        for (const obj of Il2Cpp.gc.choose(HealthScript)) {
+            patchTacticalHealthIfPlayer(obj);
         }
-      } catch (e) {}
-    }
-
-    console.log("");
-    console.log("========== RESULTADO ==========");
-    console.log("[+] Classes analisadas: " + classCount);
-    console.log("[+] Métodos encontrados: " + methodCount);
-    console.log("[+] Traces instalados: " + traceCount);
-    console.log("[+] Falhas: " + failCount);
-    console.log("[+] Trace ativo.");
-  });
+    } catch (_) {}
 }
 
-setTimeout(main, 5000);
+function unlockAllSkins(image: Il2Cpp.Image) {
+    try {
+        const WeaponSkinManager = klass(image, "WeaponSkinManager");
+        const instance = WeaponSkinManager.field("Instance").value as Il2Cpp.Object;
+
+        if (!instance || instance.isNull()) {
+            return;
+        }
+
+        const skins = instance.field("weaponSkins").value as Il2Cpp.Object;
+        const count = listCount(skins);
+
+        for (let i = 0; i < count; i++) {
+            const skin = listGet(skins, i);
+            if (!skin || skin.isNull()) continue;
+
+            setField(skin, "owned", true);
+            setField(skin, "price", 0);
+            setField(skin, "isInBox", false);
+            setField(skin, "isInSpecialActivity", false);
+        }
+
+        try {
+            methodByArgs(WeaponSkinManager, "Save2File", 1).invoke(instance, false);
+        } catch (_) {
+            try {
+                methodByArgs(WeaponSkinManager, "Save2File").invoke(instance);
+            } catch (_) {}
+        }
+
+        log(`Skins desbloqueadas: ${count}`);
+    } catch (e) {
+        log(`unlockAllSkins falhou: ${e}`);
+    }
+}
+
+function giveInfiniteMoney(image: Il2Cpp.Image) {
+    try {
+        const ItemDataManager = klass(image, "DataCenter.ItemDataManager", "ItemDataManager");
+
+        try {
+            methodByArgs(ItemDataManager, "SetCurrency", 2).invoke(1, INF_MONEY);   // GOLD
+            methodByArgs(ItemDataManager, "SetCurrency", 2).invoke(4, INF_MONEY);   // TICKET
+            methodByArgs(ItemDataManager, "SetCurrency", 2).invoke(5, INF_MONEY);   // WEAPONFRAGMENTS
+        } catch (_) {}
+
+        log("Dinheiro inicial aplicado");
+    } catch (e) {
+        log(`giveInfiniteMoney falhou: ${e}`);
+    }
+}
+
+Il2Cpp.perform(() => {
+    const image = getImage();
+
+    log("IL2CPP inicializado");
+
+    /*
+      VIDA INFINITA — FPSPlayer
+      Dump:
+      FPSPlayer.isGodMode
+      FPSPlayer.invulnerable
+      FPSPlayer.hitPoints
+      FPSPlayer.maximumHitPoints
+      FPSPlayer.ApplyDamage(float)
+      FPSPlayer.ApplyDamage(float, int, Transform, bool, KillType)
+    */
+    try {
+        const FPSPlayer = klass(image, "FPSPlayer");
+
+        const start = methodByArgs(FPSPlayer, "Start", 0);
+        start.implementation = function () {
+            const ret = start.invoke(this);
+            patchFPSPlayer(this as Il2Cpp.Object);
+            log("FPSPlayer.Start patchado com vida infinita");
+            return ret;
+        };
+
+        const update = methodByArgs(FPSPlayer, "Update", 0);
+        update.implementation = function () {
+            patchFPSPlayer(this as Il2Cpp.Object);
+            return update.invoke(this);
+        };
+
+        const applyDamage1 = methodByArgs(FPSPlayer, "ApplyDamage", 1);
+        applyDamage1.implementation = function (damage: number) {
+            patchFPSPlayer(this as Il2Cpp.Object);
+            log(`ApplyDamage(float) bloqueado: ${damage}`);
+            return;
+        };
+
+        const applyDamage5 = methodByArgs(FPSPlayer, "ApplyDamage", 5);
+        applyDamage5.implementation = function (
+            damage: number,
+            targetId: number,
+            attacker: Il2Cpp.Object,
+            isMeleeAttack: boolean,
+            killType: any
+        ) {
+            patchFPSPlayer(this as Il2Cpp.Object);
+            log(`ApplyDamage(5 args) bloqueado: ${damage}`);
+            return;
+        };
+
+        log("Hooks de FPSPlayer instalados");
+    } catch (e) {
+        log(`FPSPlayer hook falhou: ${e}`);
+    }
+
+    /*
+      VIDA INFINITA — TacticalAI.HealthScript
+      Não deixo inimigos imortais: só bloqueia quando myAIBaseScript parece nulo.
+    */
+    try {
+        const HealthScript = klass(image, "TacticalAI.HealthScript", "HealthScript");
+
+        const damage = methodByArgs(HealthScript, "Damage", 4);
+        damage.implementation = function (
+            dmg: number,
+            targetId: number,
+            killType: any,
+            isHeadShot: boolean
+        ) {
+            const obj = this as Il2Cpp.Object;
+            const aiBase = getField<Il2Cpp.Object>(obj, "myAIBaseScript");
+
+            if (!aiBase || aiBase.isNull()) {
+                patchTacticalHealthIfPlayer(obj);
+                log(`TacticalAI.HealthScript.Damage bloqueado: ${dmg}`);
+                return;
+            }
+
+            return damage.invoke(this, dmg, targetId, killType, isHeadShot);
+        };
+
+        const reduce = methodByArgs(HealthScript, "ReduceHealthAndShields", 2);
+        reduce.implementation = function (dmg: number, isFromMine: boolean) {
+            const obj = this as Il2Cpp.Object;
+            const aiBase = getField<Il2Cpp.Object>(obj, "myAIBaseScript");
+
+            if (!aiBase || aiBase.isNull()) {
+                patchTacticalHealthIfPlayer(obj);
+                log(`ReduceHealthAndShields bloqueado: ${dmg}`);
+                return;
+            }
+
+            return reduce.invoke(this, dmg, isFromMine);
+        };
+
+        log("Hooks de TacticalAI.HealthScript instalados");
+    } catch (e) {
+        log(`HealthScript hook ignorado/falhou: ${e}`);
+    }
+
+    /*
+      DINHEIRO INFINITO
+      Dump:
+      namespace DataCenter
+      ItemDataManager.GetCurrency(CommonDataType type)
+      ItemDataManager.SetCurrency(CommonDataType type, int num)
+
+      CommonDataType:
+      GOLD = 1
+      GRENADE = 2
+      MEDICAL = 3
+      TICKET = 4
+      WEAPONFRAGMENTS = 5
+      SKIN = 102
+    */
+    try {
+        const ItemDataManager = klass(image, "DataCenter.ItemDataManager", "ItemDataManager");
+
+        const getCurrency = methodByArgs(ItemDataManager, "GetCurrency", 1);
+        getCurrency.implementation = function (type: number) {
+            if (type === 1 || type === 4 || type === 5 || type === 102) {
+                return INF_MONEY;
+            }
+
+            return getCurrency.invoke(type);
+        };
+
+        const setCurrency = methodByArgs(ItemDataManager, "SetCurrency", 2);
+        setCurrency.implementation = function (type: number, num: number) {
+            if (type === 1 || type === 4 || type === 5 || type === 102) {
+                return setCurrency.invoke(type, INF_MONEY);
+            }
+
+            return setCurrency.invoke(type, num);
+        };
+
+        giveInfiniteMoney(image);
+        log("Hooks de dinheiro instalados");
+    } catch (e) {
+        log(`ItemDataManager hook falhou: ${e}`);
+    }
+
+    /*
+      DESBLOQUEAR TODAS AS SKINS
+      Dump:
+      WeaponSkinManager.Instance
+      WeaponSkinManager.weaponSkins
+      WeaponSkinItem : PurchaseItem
+      PurchaseItem.owned
+    */
+    try {
+        const WeaponSkinManager = klass(image, "WeaponSkinManager");
+
+        const awake = methodByArgs(WeaponSkinManager, "Awake", 0);
+        awake.implementation = function () {
+            const ret = awake.invoke(this);
+            unlockAllSkins(image);
+            return ret;
+        };
+
+        const start = methodByArgs(WeaponSkinManager, "Start", 0);
+        start.implementation = function () {
+            const ret = start.invoke(this);
+            unlockAllSkins(image);
+            return ret;
+        };
+
+        const initSkins = methodByArgs(WeaponSkinManager, "InitSkins", 0);
+        initSkins.implementation = function () {
+            const ret = initSkins.invoke(this);
+            unlockAllSkins(image);
+            return ret;
+        };
+
+        log("Hooks de WeaponSkinManager instalados");
+    } catch (e) {
+        log(`WeaponSkinManager hook falhou: ${e}`);
+    }
+
+    /*
+      UI da loja: força cada item recebido pela ShopSkinScript.Init a entrar como owned.
+    */
+    try {
+        const ShopSkinScript = klass(image, "ShopSkinScript");
+
+        const init = methodByArgs(ShopSkinScript, "Init", 3);
+        init.implementation = function (
+            item: Il2Cpp.Object,
+            choiceName: Il2Cpp.String,
+            equipName: Il2Cpp.String
+        ) {
+            if (item && !item.isNull()) {
+                setField(item, "owned", true);
+                setField(item, "price", 0);
+            }
+
+            return init.invoke(this, item, choiceName, equipName);
+        };
+
+        log("Hook de ShopSkinScript.Init instalado");
+    } catch (e) {
+        log(`ShopSkinScript hook falhou: ${e}`);
+    }
+
+    /*
+      Loop de manutenção:
+      - reaplica vida;
+      - reaplica dinheiro;
+      - tenta desbloquear skins quando o manager já existir.
+    */
+    setInterval(() => {
+        patchAllLivePlayers(image);
+        giveInfiniteMoney(image);
+        unlockAllSkins(image);
+    }, 1000);
+
+    log("Script carregado com sucesso");
+});
