@@ -7,7 +7,7 @@ function log(msg: string) {
     console.log(`[CTF] ${msg}`);
 }
 
-function image() {
+function getImage(): Il2Cpp.Image {
     return Il2Cpp.domain.assembly("Assembly-CSharp").image;
 }
 
@@ -35,29 +35,29 @@ function method(c: Il2Cpp.Class, name: string, argc?: number): Il2Cpp.Method {
     return found;
 }
 
-function asObj(self: any): Il2Cpp.Object {
+function obj(self: any): Il2Cpp.Object {
     return self as unknown as Il2Cpp.Object;
 }
 
-function setField(obj: Il2Cpp.Object, name: string, value: any): boolean {
+function setField(o: Il2Cpp.Object, name: string, value: any): boolean {
     try {
-        (obj.field(name) as any).value = value;
+        (o.field(name) as any).value = value;
         return true;
     } catch (_) {
         return false;
     }
 }
 
-function getField(obj: Il2Cpp.Object, name: string): any {
+function getField(o: Il2Cpp.Object, name: string): any {
     try {
-        return (obj.field(name) as any).value;
+        return (o.field(name) as any).value;
     } catch (_) {
         return null;
     }
 }
 
-function invokeOriginal(m: Il2Cpp.Method, self: any, ...args: any[]): any {
-    return (m as any).invoke(self, ...args);
+function invokeInstance(self: any, name: string, argc: number, ...args: any[]): any {
+    return (obj(self).method(name, argc) as any).invoke(...args);
 }
 
 function invokeStatic(m: Il2Cpp.Method, ...args: any[]): any {
@@ -106,34 +106,34 @@ function patchFPSPlayer(player: Il2Cpp.Object) {
     setField(player, "thirstPoints", 0);
 }
 
-function patchHealthScriptIfPlayer(obj: Il2Cpp.Object) {
-    const aiBase = getField(obj, "myAIBaseScript");
+function patchHealthScriptIfPlayer(h: Il2Cpp.Object) {
+    const aiBase = getField(h, "myAIBaseScript");
 
     if (aiBase && !aiBase.isNull()) {
         return;
     }
 
-    setField(obj, "isGodMode", true);
-    setField(obj, "health", INF_HP);
-    setField(obj, "maxHealth", INF_HP);
-    setField(obj, "shields", INF_HP);
-    setField(obj, "maxShields", INF_HP);
+    setField(h, "isGodMode", true);
+    setField(h, "health", INF_HP);
+    setField(h, "maxHealth", INF_HP);
+    setField(h, "shields", INF_HP);
+    setField(h, "maxShields", INF_HP);
 }
 
 function patchLivePlayers(img: Il2Cpp.Image) {
     try {
         const FPSPlayer = klass(img, "FPSPlayer");
 
-        for (const obj of Il2Cpp.gc.choose(FPSPlayer)) {
-            patchFPSPlayer(obj);
+        for (const p of Il2Cpp.gc.choose(FPSPlayer as any)) {
+            patchFPSPlayer(p);
         }
     } catch (_) {}
 
     try {
         const HealthScript = klass(img, "TacticalAI.HealthScript", "HealthScript");
 
-        for (const obj of Il2Cpp.gc.choose(HealthScript)) {
-            patchHealthScriptIfPlayer(obj);
+        for (const h of Il2Cpp.gc.choose(HealthScript as any)) {
+            patchHealthScriptIfPlayer(h);
         }
     } catch (_) {}
 }
@@ -143,14 +143,22 @@ function giveMoney(img: Il2Cpp.Image) {
         const ItemDataManager = klass(img, "DataCenter.ItemDataManager", "ItemDataManager");
         const setCurrency = method(ItemDataManager, "SetCurrency", 2);
 
-        invokeStatic(setCurrency, 1, INF_MONEY);   // GOLD
-        invokeStatic(setCurrency, 4, INF_MONEY);   // TICKET
-        invokeStatic(setCurrency, 5, INF_MONEY);   // WEAPONFRAGMENTS
-        invokeStatic(setCurrency, 102, INF_MONEY); // SKIN
+        invokeStatic(setCurrency, 1, INF_MONEY); // GOLD
+        invokeStatic(setCurrency, 4, INF_MONEY); // TICKET
+        invokeStatic(setCurrency, 5, INF_MONEY); // WEAPONFRAGMENTS
     } catch (_) {}
 }
 
-function unlockSkins(img: Il2Cpp.Image) {
+function unlockSkinItem(item: Il2Cpp.Object | null) {
+    if (!item || item.isNull()) {
+        return;
+    }
+
+    setField(item, "owned", true);
+    setField(item, "price", 0);
+}
+
+function unlockSkinsRuntimeOnly(img: Il2Cpp.Image) {
     try {
         const WeaponSkinManager = klass(img, "WeaponSkinManager");
         const instance = (WeaponSkinManager.field("Instance") as any).value as Il2Cpp.Object;
@@ -160,32 +168,21 @@ function unlockSkins(img: Il2Cpp.Image) {
         }
 
         const skins = (instance.field("weaponSkins") as any).value as Il2Cpp.Object;
+
+        if (!skins || skins.isNull()) {
+            return;
+        }
+
         const count = listCount(skins);
 
         for (let i = 0; i < count; i++) {
-            const skin = listGet(skins, i);
-
-            if (!skin || skin.isNull()) {
-                continue;
-            }
-
-            setField(skin, "owned", true);
-            setField(skin, "price", 0);
-            setField(skin, "isInBox", false);
-            setField(skin, "isInSpecialActivity", false);
+            unlockSkinItem(listGet(skins, i));
         }
-
-        try {
-            const save = method(WeaponSkinManager, "Save2File", 1);
-            invokeOriginal(save, instance, false);
-        } catch (_) {}
-
-        log(`Skins desbloqueadas: ${count}`);
     } catch (_) {}
 }
 
 Il2Cpp.perform(() => {
-    const img = image();
+    const img = getImage();
 
     log("IL2CPP bridge carregado");
 
@@ -194,28 +191,28 @@ Il2Cpp.perform(() => {
 
         const start = method(FPSPlayer, "Start", 0);
         start.implementation = function (this: any, ...args: any[]): any {
-            const ret = invokeOriginal(start, this, ...args);
-            patchFPSPlayer(asObj(this));
+            const ret = invokeInstance(this, "Start", 0, ...args);
+            patchFPSPlayer(obj(this));
             log("FPSPlayer.Start patchado");
             return ret;
         };
 
         const update = method(FPSPlayer, "Update", 0);
         update.implementation = function (this: any, ...args: any[]): any {
-            patchFPSPlayer(asObj(this));
-            return invokeOriginal(update, this, ...args);
+            patchFPSPlayer(obj(this));
+            return invokeInstance(this, "Update", 0, ...args);
         };
 
         const applyDamage1 = method(FPSPlayer, "ApplyDamage", 1);
         applyDamage1.implementation = function (this: any, ...args: any[]): any {
-            patchFPSPlayer(asObj(this));
+            patchFPSPlayer(obj(this));
             log(`ApplyDamage(float) bloqueado: ${args[0]}`);
             return undefined;
         };
 
         const applyDamage5 = method(FPSPlayer, "ApplyDamage", 5);
         applyDamage5.implementation = function (this: any, ...args: any[]): any {
-            patchFPSPlayer(asObj(this));
+            patchFPSPlayer(obj(this));
             log(`ApplyDamage(5 args) bloqueado: ${args[0]}`);
             return undefined;
         };
@@ -230,30 +227,30 @@ Il2Cpp.perform(() => {
 
         const damage = method(HealthScript, "Damage", 4);
         damage.implementation = function (this: any, ...args: any[]): any {
-            const obj = asObj(this);
-            const aiBase = getField(obj, "myAIBaseScript");
+            const self = obj(this);
+            const aiBase = getField(self, "myAIBaseScript");
 
             if (!aiBase || aiBase.isNull()) {
-                patchHealthScriptIfPlayer(obj);
+                patchHealthScriptIfPlayer(self);
                 log(`HealthScript.Damage bloqueado: ${args[0]}`);
                 return undefined;
             }
 
-            return invokeOriginal(damage, this, ...args);
+            return invokeInstance(this, "Damage", 4, ...args);
         };
 
         const reduce = method(HealthScript, "ReduceHealthAndShields", 2);
         reduce.implementation = function (this: any, ...args: any[]): any {
-            const obj = asObj(this);
-            const aiBase = getField(obj, "myAIBaseScript");
+            const self = obj(this);
+            const aiBase = getField(self, "myAIBaseScript");
 
             if (!aiBase || aiBase.isNull()) {
-                patchHealthScriptIfPlayer(obj);
+                patchHealthScriptIfPlayer(self);
                 log(`ReduceHealthAndShields bloqueado: ${args[0]}`);
                 return undefined;
             }
 
-            return invokeOriginal(reduce, this, ...args);
+            return invokeInstance(this, "ReduceHealthAndShields", 2, ...args);
         };
 
         log("Hooks extras de HealthScript instalados");
@@ -268,7 +265,7 @@ Il2Cpp.perform(() => {
         getCurrency.implementation = function (this: any, ...args: any[]): any {
             const type = Number(args[0]);
 
-            if (type === 1 || type === 4 || type === 5 || type === 102) {
+            if (type === 1 || type === 4 || type === 5) {
                 return INF_MONEY;
             }
 
@@ -279,7 +276,7 @@ Il2Cpp.perform(() => {
         setCurrency.implementation = function (this: any, ...args: any[]): any {
             const type = Number(args[0]);
 
-            if (type === 1 || type === 4 || type === 5 || type === 102) {
+            if (type === 1 || type === 4 || type === 5) {
                 return invokeStatic(setCurrency, type, INF_MONEY);
             }
 
@@ -295,30 +292,16 @@ Il2Cpp.perform(() => {
     try {
         const WeaponSkinManager = klass(img, "WeaponSkinManager");
 
-        const awake = method(WeaponSkinManager, "Awake", 0);
-        awake.implementation = function (this: any, ...args: any[]): any {
-            const ret = invokeOriginal(awake, this, ...args);
-            unlockSkins(img);
-            return ret;
+        const findSkins = method(WeaponSkinManager, "FindSkins", 1);
+        findSkins.implementation = function (this: any, ...args: any[]): any {
+            const skin = invokeInstance(this, "FindSkins", 1, ...args) as Il2Cpp.Object;
+            unlockSkinItem(skin);
+            return skin;
         };
 
-        const start = method(WeaponSkinManager, "Start", 0);
-        start.implementation = function (this: any, ...args: any[]): any {
-            const ret = invokeOriginal(start, this, ...args);
-            unlockSkins(img);
-            return ret;
-        };
-
-        const initSkins = method(WeaponSkinManager, "InitSkins", 0);
-        initSkins.implementation = function (this: any, ...args: any[]): any {
-            const ret = invokeOriginal(initSkins, this, ...args);
-            unlockSkins(img);
-            return ret;
-        };
-
-        log("Hooks de skins instalados em WeaponSkinManager");
+        log("Hook seguro de WeaponSkinManager.FindSkins instalado");
     } catch (e) {
-        log(`Falha em WeaponSkinManager: ${e}`);
+        log(`WeaponSkinManager.FindSkins ignorado: ${e}`);
     }
 
     try {
@@ -327,16 +310,12 @@ Il2Cpp.perform(() => {
         const init = method(ShopSkinScript, "Init", 3);
         init.implementation = function (this: any, ...args: any[]): any {
             const item = args[0] as Il2Cpp.Object;
+            unlockSkinItem(item);
 
-            if (item && !item.isNull()) {
-                setField(item, "owned", true);
-                setField(item, "price", 0);
-            }
-
-            return invokeOriginal(init, this, ...args);
+            return invokeInstance(this, "Init", 3, ...args);
         };
 
-        log("Hook de ShopSkinScript.Init instalado");
+        log("Hook seguro de ShopSkinScript.Init instalado");
     } catch (e) {
         log(`ShopSkinScript ignorado: ${e}`);
     }
@@ -344,8 +323,8 @@ Il2Cpp.perform(() => {
     setInterval(() => {
         patchLivePlayers(img);
         giveMoney(img);
-        unlockSkins(img);
-    }, 1000);
+        unlockSkinsRuntimeOnly(img);
+    }, 1500);
 
     log("Script carregado com sucesso");
 });
