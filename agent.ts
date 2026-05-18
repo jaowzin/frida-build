@@ -60,10 +60,6 @@ function invokeInstance(self: any, name: string, argc: number, ...args: any[]): 
     return (obj(self).method(name, argc) as any).invoke(...args);
 }
 
-function invokeStatic(m: Il2Cpp.Method, ...args: any[]): any {
-    return (m as any).invoke(...args);
-}
-
 function listCount(listObj: Il2Cpp.Object): number {
     try {
         return (listObj.method("get_Count") as any).invoke() as number;
@@ -100,10 +96,23 @@ function patchFPSPlayer(player: Il2Cpp.Object) {
     setField(player, "MaxshieldsPoints", INF_HP);
     setField(player, "ShieldsPoints", INF_HP);
 
+    setField(player, "maxRegenHealth", INF_HP);
+    setField(player, "healthRegenDelay", 0);
+    setField(player, "healthRegenRate", INF_HP);
+
     setField(player, "usePlayerHunger", false);
     setField(player, "usePlayerThirst", false);
     setField(player, "hungerPoints", 0);
     setField(player, "thirstPoints", 0);
+
+    setField(player, "starveDmgAmt", 0);
+    setField(player, "thirstDmgAmt", 0);
+
+    // Campo privado que indica morte.
+    setField(player, "activeDie", false);
+
+    // Evita estado de restart/morte.
+    setField(player, "restarting", false);
 }
 
 function patchHealthScriptIfPlayer(h: Il2Cpp.Object) {
@@ -135,17 +144,6 @@ function patchLivePlayers(img: Il2Cpp.Image) {
         for (const h of Il2Cpp.gc.choose(HealthScript as any)) {
             patchHealthScriptIfPlayer(h);
         }
-    } catch (_) {}
-}
-
-function giveMoney(img: Il2Cpp.Image) {
-    try {
-        const ItemDataManager = klass(img, "DataCenter.ItemDataManager", "ItemDataManager");
-        const setCurrency = method(ItemDataManager, "SetCurrency", 2);
-
-        invokeStatic(setCurrency, 1, INF_MONEY); // GOLD
-        invokeStatic(setCurrency, 4, INF_MONEY); // TICKET
-        invokeStatic(setCurrency, 5, INF_MONEY); // WEAPONFRAGMENTS
     } catch (_) {}
 }
 
@@ -186,6 +184,10 @@ Il2Cpp.perform(() => {
 
     log("IL2CPP bridge carregado");
 
+    /*
+      VIDA INFINITA REAL — FPSPlayer
+      Agora também bloqueia Die(), RestartMap(), ActiveDie() e IsRevival().
+    */
     try {
         const FPSPlayer = klass(img, "FPSPlayer");
 
@@ -203,25 +205,67 @@ Il2Cpp.perform(() => {
             return invokeInstance(this, "Update", 0, ...args);
         };
 
+        const lateUpdate = method(FPSPlayer, "LateUpdate", 0);
+        lateUpdate.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            return invokeInstance(this, "LateUpdate", 0, ...args);
+        };
+
         const applyDamage1 = method(FPSPlayer, "ApplyDamage", 1);
         applyDamage1.implementation = function (this: any, ...args: any[]): any {
             patchFPSPlayer(obj(this));
-            log(`ApplyDamage(float) bloqueado: ${args[0]}`);
+            log(`FPSPlayer.ApplyDamage(float) bloqueado: ${args[0]}`);
             return undefined;
         };
 
         const applyDamage5 = method(FPSPlayer, "ApplyDamage", 5);
         applyDamage5.implementation = function (this: any, ...args: any[]): any {
             patchFPSPlayer(obj(this));
-            log(`ApplyDamage(5 args) bloqueado: ${args[0]}`);
+            log(`FPSPlayer.ApplyDamage(5 args) bloqueado: ${args[0]}`);
             return undefined;
         };
 
-        log("Hooks de vida instalados em FPSPlayer");
+        const die = method(FPSPlayer, "Die", 0);
+        die.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            log("FPSPlayer.Die bloqueado");
+            return undefined;
+        };
+
+        const restartMap = method(FPSPlayer, "RestartMap", 0);
+        restartMap.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            log("FPSPlayer.RestartMap bloqueado");
+            return undefined;
+        };
+
+        const activeDie = method(FPSPlayer, "ActiveDie", 0);
+        activeDie.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            return false;
+        };
+
+        const isRevival = method(FPSPlayer, "IsRevival", 1);
+        isRevival.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            log("FPSPlayer.IsRevival forçado para vivo");
+            return undefined;
+        };
+
+        const healPlayer = method(FPSPlayer, "HealPlayer", 2);
+        healPlayer.implementation = function (this: any, ...args: any[]): any {
+            patchFPSPlayer(obj(this));
+            return invokeInstance(this, "HealPlayer", 2, INF_HP, false);
+        };
+
+        log("God mode forte instalado em FPSPlayer");
     } catch (e) {
         log(`Falha em FPSPlayer: ${e}`);
     }
 
+    /*
+      BLOQUEIO EXTRA — TacticalAI.HealthScript
+    */
     try {
         const HealthScript = klass(img, "TacticalAI.HealthScript", "HealthScript");
 
@@ -246,11 +290,25 @@ Il2Cpp.perform(() => {
 
             if (!aiBase || aiBase.isNull()) {
                 patchHealthScriptIfPlayer(self);
-                log(`ReduceHealthAndShields bloqueado: ${args[0]}`);
+                log(`HealthScript.ReduceHealthAndShields bloqueado: ${args[0]}`);
                 return undefined;
             }
 
             return invokeInstance(this, "ReduceHealthAndShields", 2, ...args);
+        };
+
+        const deathCheck = method(HealthScript, "DeathCheck", 0);
+        deathCheck.implementation = function (this: any, ...args: any[]): any {
+            const self = obj(this);
+            const aiBase = getField(self, "myAIBaseScript");
+
+            if (!aiBase || aiBase.isNull()) {
+                patchHealthScriptIfPlayer(self);
+                log("HealthScript.DeathCheck bloqueado para player");
+                return undefined;
+            }
+
+            return invokeInstance(this, "DeathCheck", 0, ...args);
         };
 
         log("Hooks extras de HealthScript instalados");
@@ -258,6 +316,12 @@ Il2Cpp.perform(() => {
         log(`HealthScript ignorado: ${e}`);
     }
 
+    /*
+      DINHEIRO INFINITO
+      GOLD = 1
+      TICKET = 4
+      WEAPONFRAGMENTS = 5
+    */
     try {
         const ItemDataManager = klass(img, "DataCenter.ItemDataManager", "ItemDataManager");
 
@@ -269,26 +333,30 @@ Il2Cpp.perform(() => {
                 return INF_MONEY;
             }
 
-            return invokeStatic(getCurrency, ...args);
+            return 0;
         };
 
         const setCurrency = method(ItemDataManager, "SetCurrency", 2);
         setCurrency.implementation = function (this: any, ...args: any[]): any {
             const type = Number(args[0]);
+            const amount = Number(args[1]);
 
             if (type === 1 || type === 4 || type === 5) {
-                return invokeStatic(setCurrency, type, INF_MONEY);
+                log(`SetCurrency bloqueado: type=${type}, amount=${amount}`);
+                return undefined;
             }
 
-            return invokeStatic(setCurrency, ...args);
+            return undefined;
         };
 
-        giveMoney(img);
-        log("Hooks de dinheiro instalados");
+        log("Hooks de dinheiro instalados sem invokeStatic");
     } catch (e) {
         log(`Falha em dinheiro: ${e}`);
     }
 
+    /*
+      SKINS — runtime only
+    */
     try {
         const WeaponSkinManager = klass(img, "WeaponSkinManager");
 
@@ -322,9 +390,8 @@ Il2Cpp.perform(() => {
 
     setInterval(() => {
         patchLivePlayers(img);
-        giveMoney(img);
         unlockSkinsRuntimeOnly(img);
-    }, 1500);
+    }, 500);
 
-    log("Script carregado com sucesso");
+    log("Script carregado com God Mode forte");
 });
